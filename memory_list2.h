@@ -22,7 +22,7 @@ private:
         explicit MallocMetadataNode(size_t size = 0, void * address = nullptr, bool is_free = false) :
                 metadata{size, address, is_free},
                 next(nullptr),
-                prev(nullptr)
+                prev(nullptr) {}
         ~MallocMetadataNode() = default;
     };
 

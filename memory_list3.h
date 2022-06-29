@@ -8,7 +8,7 @@
 
 using SearchDirection = enum SearchDirection {BY_SIZE, BY_ADDRESS};
 
-class MemoryList {
+class MemoryList3 {
 private:
 
     struct Metadata {
@@ -40,16 +40,16 @@ private:
     MallocMetadataNode end_address_list;
     unsigned int length;
 
-    MemoryList();
+    MemoryList3();
     void * add_node(size_t size);
 public:
-    static MemoryList& get(){
-        static MemoryList list;
+    static MemoryList3& get(){
+        static MemoryList3 list;
         return list;
     }
 
-    MemoryList(MemoryList&) = delete;
-    MemoryList operator=(MemoryList&) = delete;
+    MemoryList3(MemoryList3&) = delete;
+    MemoryList3 operator=(MemoryList3&) = delete;
     void * allocate(size_t size, enum SearchDirection direction);
     void free(void* address);
     void * reallocate(void* address, size_t size, enum SearchDirection direction);

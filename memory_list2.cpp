@@ -4,6 +4,8 @@
 
 #include <cstdlib>
 #include "memory_list2.h"
+#include <unistd.h>
+
 
 MemoryList2::MemoryList2() :
 head_list(),
@@ -61,10 +63,6 @@ void MemoryList2::free(void *address) {
 }
 
 void *MemoryList2::reallocate(void *address, size_t size) {
-    if(address == nullptr)
-    {
-        return allocate(size);
-    }
     //address loop:
     MallocMetadataNode* ptr;
     for (ptr = head_list.next; ptr != &end_list; ptr = ptr->next)

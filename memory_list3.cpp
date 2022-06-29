@@ -4,8 +4,10 @@
 
 #include <cstdlib>
 #include "memory_list3.h"
+#include <unistd.h>
 
-MemoryList::MemoryList() :
+
+MemoryList3::MemoryList3() :
         head_size_list(),
         head_address_list() , end_address_list(), end_size_list() , length(0) {
     head_address_list.next_by_address = &end_address_list;
@@ -15,7 +17,7 @@ MemoryList::MemoryList() :
     end_size_list.prev_by_address = &head_size_list;
 }
 
-void * MemoryList::allocate(size_t size, SearchDirection direction) {
+void * MemoryList3::allocate(size_t size, SearchDirection direction) {
     // * step 1: search by ADDRESS a fitting block
     MallocMetadataNode* node;
     for (node = head_address_list.next_by_address; node != &end_address_list ; node = node->next_by_address) {
@@ -31,7 +33,7 @@ void * MemoryList::allocate(size_t size, SearchDirection direction) {
     return add_node(size);
 }
 
-void * MemoryList::add_node(size_t size) {
+void * MemoryList3::add_node(size_t size) {
     void* new_node_ptr = sbrk(sizeof(MallocMetadataNode) + size);
     if(new_node_ptr == (void *) -1) return nullptr;
     auto our_data = (MallocMetadataNode*) new_node_ptr;
@@ -65,7 +67,7 @@ void * MemoryList::add_node(size_t size) {
     return our_data->metadata.address;
 }
 
-void MemoryList::free(void *address) {
+void MemoryList3::free(void *address) {
     for (MallocMetadataNode* ptr = head_address_list.next_by_address; ptr != &end_address_list; ptr = ptr->next_by_address)
     {
         if(ptr->metadata.address == address){
@@ -76,7 +78,7 @@ void MemoryList::free(void *address) {
     exit(1);
 }
 
-void *MemoryList::reallocate(void *address, size_t size, enum SearchDirection direction) {
+void *MemoryList3::reallocate(void *address, size_t size, enum SearchDirection direction) {
     if(address == nullptr)
     {
         return allocate(size,BY_ADDRESS);
