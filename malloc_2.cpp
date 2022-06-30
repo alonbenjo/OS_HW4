@@ -2,6 +2,7 @@
 #include <cmath>
 #include <iostream>
 #include <unistd.h>
+#include <cstring>
 
 #define PRINT_PARAM(input) \
     std::cin << "PRINT_PARAM:\t" << input << std::endl;
@@ -11,7 +12,6 @@ class MemoryList2 {
 private:
     struct Metadata {
         size_t size;
-        void * address;
         bool is_free;
     };
 
@@ -21,10 +21,13 @@ private:
         MallocMetadataNode *prev;
 
         explicit MallocMetadataNode(size_t size = 0, void * address = nullptr, bool is_free = false) :
-                metadata{size, address, is_free},
+                metadata{size,address, is_free},
                 next(nullptr),
                 prev(nullptr) {}
         ~MallocMetadataNode() = default;
+        void* address() const{
+            return (char *) this + sizeof(*this);
+        }
     };
 
     MallocMetadataNode head_list;
@@ -77,7 +80,7 @@ void * MemoryList2::allocate(size_t size) {
         node->metadata.is_free = false;
         free_blocks --;
         free_bytes -= node->metadata.size;
-        return node->metadata.address;
+        return node->address();
     }
 
     // * step 2: if none of the existing blocks fit create a new one!
@@ -90,7 +93,6 @@ void * MemoryList2::add_node(size_t size) {
     auto our_data = (MallocMetadataNode*) new_node_ptr;
     our_data->metadata.is_free = false;
     our_data->metadata.size = size;
-    our_data->metadata.address = (char*) new_node_ptr + sizeof(MallocMetadataNode);
     MallocMetadataNode *next_ptr, *prev_ptr;
 
     //address (no) loop:
@@ -104,13 +106,13 @@ void * MemoryList2::add_node(size_t size) {
     allocated_blocks++;
     allocated_bytes += size;
     meta_data_bytes += sizeof(MallocMetadataNode);
-    return our_data->metadata.address;
+    return our_data->address();
 }
 
 void MemoryList2::free(void *address) {
     for (MallocMetadataNode* ptr = head_list.next; ptr != &end_list; ptr = ptr->next)
     {
-        if(ptr->metadata.address == address){
+        if(ptr->address() == address){
             ptr->metadata.is_free = true;
             free_blocks++;
 
@@ -126,22 +128,21 @@ void *MemoryList2::reallocate(void *address, size_t size) {
     MallocMetadataNode* ptr;
     for (ptr = head_list.next; ptr != &end_list; ptr = ptr->next)
     {
-        if(ptr->metadata.address == address)
+        if(ptr->address() == address)
             break;
     }
     if (ptr == &end_list)
         exit(1);
 
     if(ptr->metadata.size >= size)
-        return ptr->metadata.address;
+        return ptr->address();
 
     void* ret_address = allocate(size);
     if(ret_address == nullptr)
         return nullptr;
 
-    for (unsigned i = 0; i < size; i++) {
-        ((char *) ret_address)[i] = ((char *) address)[i];
-    }
+    std::memmove(ret_address, address, size);
+
     ptr->metadata.is_free = true;
     free_blocks++;
     free_bytes += ptr->metadata.size;
@@ -188,13 +189,13 @@ void* scalloc(size_t num, size_t size) {
     {
         return nullptr;
     }
-    for (unsigned i = 0; i < size*num; i++) {
-        ((char *) address)[i] = 0;
-    }
+    memset(address, 0, size*num);
     return address;
 }
 
 void* srealloc(void * oldp, size_t size){
+    if(size > MAX_SIZE || size == 0)
+        return nullptr;
     auto& list = MemoryList2::get();
     if(oldp == nullptr)
     {

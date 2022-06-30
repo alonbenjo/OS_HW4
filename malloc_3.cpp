@@ -2,17 +2,18 @@
 #include <cmath>
 #include <iostream>
 #include <unistd.h>
+#include <cstring>
 
+static constexpr unsigned int MAX_SIZE = 1E8;
+
+static constexpr unsigned int MIN_SIZE = 128;
 
 // ****************************** list.h file: ******************************
-using SearchDirection = enum SearchDirection {BY_SIZE, BY_ADDRESS};
 
 class MemoryList3 {
 private:
-
     struct Metadata {
         size_t size;
-        void * address;
         bool is_free;
     };
 
@@ -23,14 +24,17 @@ private:
         MallocMetadataNode *next_by_address;
         MallocMetadataNode *prev_by_address;
 
-        explicit MallocMetadataNode(size_t size = 0, void * address = nullptr, bool is_free = false) :
-                metadata{size, address, is_free},
+        explicit MallocMetadataNode(size_t size = 0, bool is_free = false) :
+                metadata{size,  is_free},
                 next_by_size(nullptr),
                 prev_by_size(nullptr),
                 next_by_address(nullptr),
                 prev_by_address(nullptr) {};
 
         ~MallocMetadataNode() = default;
+        void* address() const{
+            return (char *) this + sizeof(*this);
+        }
     };
 
     MallocMetadataNode head_size_list;
@@ -38,19 +42,35 @@ private:
     MallocMetadataNode end_size_list;
     MallocMetadataNode end_address_list;
 
+    size_t free_blocks ;
+    size_t free_bytes ;
+    size_t allocated_bytes ;
+    size_t allocated_blocks ;
+    size_t meta_data_bytes ;
+
     MemoryList3();
     void * add_node(size_t size);
+    bool split_node(MallocMetadataNode& node, size_t data_size);
+    void enter_to_size_list(MallocMetadataNode& node);
+
 public:
     static MemoryList3& get(){
         static MemoryList3 list;
         return list;
     }
 
+    size_t getFreeBlocks() const;
+    size_t getFreeBytes() const;
+    size_t getAllocatedBytes() const;
+    size_t getAllocatedBlocks() const;
+    size_t getMetaDataBytes() const;
+
     MemoryList3(MemoryList3&) = delete;
     MemoryList3 operator=(MemoryList3&) = delete;
-    void * allocate(size_t size, enum SearchDirection direction);
+
+    void *allocate(size_t size);
     void free(void* address);
-    void * reallocate(void* address, size_t size, enum SearchDirection direction);
+    void *reallocate(void *address, size_t size);
 };
 
 
@@ -65,16 +85,17 @@ MemoryList3::MemoryList3() :
     end_size_list.prev_by_address = &head_size_list;
 }
 
-void * MemoryList3::allocate(size_t size, SearchDirection direction) {
+void * MemoryList3::allocate(size_t size) {
     // * step 1: search by ADDRESS a fitting block
     MallocMetadataNode* node;
-    for (node = head_address_list.next_by_address; node != &end_address_list ; node = node->next_by_address) {
-        if (!node->metadata.is_free)
-            continue;
-        if (node->metadata.size < size)
+    for (node = head_address_list.next_by_size; node != &end_size_list ; node = node->next_by_size) {
+        if (!node->metadata.is_free || node->metadata.size < size)
             continue;
         node->metadata.is_free = false;
-        return node->metadata.address;
+        free_blocks --;
+        //TODO for fragmentation
+        free_bytes -= node->metadata.size;
+        return node->address();
     }
 
     // * step 2: if none of the existing blocks fit create a new one!
@@ -87,11 +108,11 @@ void * MemoryList3::add_node(size_t size) {
     auto our_data = (MallocMetadataNode*) new_node_ptr;
     our_data->metadata.is_free = false;
     our_data->metadata.size = size;
-    our_data->metadata.address = (char*) new_node_ptr + sizeof(MallocMetadataNode);
     MallocMetadataNode *next_ptr, *prev_ptr;
 
     //size loop:
-    for (prev_ptr = &head_size_list, next_ptr = prev_ptr->next_by_size; next_ptr != &end_size_list; next_ptr = next_ptr->next_by_size){
+    for(prev_ptr = &head_size_list, next_ptr = prev_ptr->next_by_size; next_ptr != &end_size_list; next_ptr = next_ptr->next_by_size)
+    {
         if(next_ptr->metadata.size > our_data->metadata.size){
             break;
         }
@@ -112,55 +133,114 @@ void * MemoryList3::add_node(size_t size) {
     prev_ptr->next_by_address = our_data;
     next_ptr->prev_by_address = our_data;
 
-    return our_data->metadata.address;
+    allocated_blocks++;
+    allocated_bytes += size;
+    meta_data_bytes += sizeof(MallocMetadataNode);
+    return our_data->address();
 }
 
 void MemoryList3::free(void *address) {
     for (MallocMetadataNode* ptr = head_address_list.next_by_address; ptr != &end_address_list; ptr = ptr->next_by_address)
     {
-        if(ptr->metadata.address == address){
+        if(ptr->address() == address){
             ptr->metadata.is_free = true;
+            free_blocks++;
+
+            free_bytes += ptr->metadata.size;
             return;
         }
     }
     exit(1);
 }
 
-void *MemoryList3::reallocate(void *address, size_t size, enum SearchDirection direction) {
+void *MemoryList3::reallocate(void *address, size_t size) {
     if(address == nullptr)
     {
-        return allocate(size,BY_ADDRESS);
+        return allocate(size);
     }
     //address loop:
     MallocMetadataNode* ptr;
     for (ptr = head_address_list.next_by_address; ptr != &end_address_list; ptr = ptr->next_by_address)
     {
-        if(ptr->metadata.address == address)
+        if(ptr->address() == address)
             break;
     }
     if (ptr == &end_address_list)
         exit(1);
     if(ptr->metadata.size >= size)
-        return ptr->metadata.address;
-    auto ret_address = allocate(size, BY_ADDRESS);
+    {
+        //TODO the split node here
+        return ptr->address();
+    }
+    auto ret_address = allocate(size);
     if(ret_address == nullptr)
         return nullptr;
+    
+    todo memmove
     for (int i = 0; i < size; i++) {
         ((char *) ret_address)[i] = ((char *) address)[i];
     }
     ptr->metadata.is_free = true;
+    free_blocks++;
+    free_bytes += ptr->metadata.size;
     return ret_address;
 }
 
-// ****************************** malloc_3.cpp file: ******************************
+size_t MemoryList3::getFreeBlocks() const {
+    return free_blocks;
+}
 
-static constexpr unsigned int MAX_SIZE = 1E8;
+size_t MemoryList3::getFreeBytes() const {
+    return free_bytes;
+}
+
+size_t MemoryList3::getAllocatedBytes() const {
+    return allocated_bytes;
+}
+
+size_t MemoryList3::getAllocatedBlocks() const {
+    return allocated_blocks;
+}
+
+size_t MemoryList3::getMetaDataBytes() const {
+    return meta_data_bytes;
+}
+
+bool MemoryList3::split_node(MemoryList3::MallocMetadataNode &node, size_t data_size) {
+    size_t new_node_size = node.metadata.size - data_size - sizeof(MallocMetadataNode);
+    if(new_node_size < MIN_SIZE){
+        return false;
+    }
+
+    MallocMetadataNode new_node(new_node_size, true);
+    void* new_node_address = (char *) node.address() + data_size;
+    memmove(new_node_address, &new_node, sizeof(MallocMetadataNode));
+    auto* new_node_heap = (MallocMetadataNode *) new_node_address;
+
+    new_node_heap->next_by_address = node.next_by_address;
+    new_node_heap->prev_by_address = &node;
+    node.next_by_address->prev_by_address = new_node_heap;
+    node.next_by_address = new_node_heap;
+    node.metadata.size = data_size;
+    node.metadata.is_free = false;
+
+    node.next_by_size->prev_by_size = node.prev_by_size;
+    node.prev_by_size->next_by_size = node.next_by_size;
+
+
+}
+
+void MemoryList3::enter_to_size_list(MemoryList3::MallocMetadataNode &node) {
+
+}
+
+// ****************************** malloc_2.cpp file: ******************************
 
 void *smalloc(size_t size) {
     if (size == 0 || size > MAX_SIZE) {
         return nullptr;
     }
-    return MemoryList3::get().allocate(size, BY_ADDRESS);
+    return MemoryList3::get().allocate(size);
 }
 
 void* scalloc(size_t num, size_t size) {
@@ -169,13 +249,19 @@ void* scalloc(size_t num, size_t size) {
     {
         return nullptr;
     }
-    for (int i = 0; i < size*num; i++) {
-        ((char *) address)[i] = 0;
-    }
+    memset(address, 0, size*num);
+    return address;
 }
 
 void* srealloc(void * oldp, size_t size){
-    return MemoryList3::get().reallocate(oldp, size, BY_ADDRESS);
+    if(size > MAX_SIZE || size == 0)
+        return nullptr;
+    auto& list = MemoryList3::get();
+    if(oldp == nullptr)
+    {
+        return list.allocate(size);
+    }
+    return list.reallocate(oldp, size);
 }
 
 void sfree(void *p) {
