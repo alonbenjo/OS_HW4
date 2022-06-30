@@ -7,7 +7,6 @@
 // ****************************** H file: ******************************
 class MemoryList2 {
 private:
-
     struct Metadata {
         size_t size;
         void * address;
@@ -29,6 +28,13 @@ private:
 
     MallocMetadataNode head_list;
     MallocMetadataNode end_list;
+    size_t free_blocks;
+    size_t free_bytes;
+    size_t allocated_bytes;
+    size_t allocated_blocks;
+    size_t meta_data_bytes;
+    static constexpr size_t meta_data = sizeof(MallocMetadataNode);
+
 
     MemoryList2();
     void * add_node(size_t size);
@@ -43,13 +49,18 @@ public:
     void * allocate(size_t size);
     void free(void* address);
     void * reallocate(void* address, size_t size);
+    const size_t& getFreeBlocks() const;
+    const size_t& getFreeBytes() const;
+    const size_t& getAllocatedBytes() const;
+    const size_t& getAllocatedBlocks() const;
+    const size_t& getMetaDataBytes() const;
+
+    static const size_t& getMetaData();
 };
 
 
 // ****************************** CPP file: ******************************
-MemoryList2::MemoryList2() :
-        head_list(),
-        end_list() {
+MemoryList2::MemoryList2() : head_list(), end_list(), free_blocks(0), free_bytes(0), allocated_blocks(0), allocated_bytes(0) {
     head_list.next = &end_list;
     end_list.prev = &head_list;
 }
@@ -63,6 +74,8 @@ void * MemoryList2::allocate(size_t size) {
         if (node->metadata.size < size)
             continue;
         node->metadata.is_free = false;
+        free_blocks --;
+        free_bytes -= node->metadata.size;
         return node->metadata.address;
     }
 
@@ -87,7 +100,9 @@ void * MemoryList2::add_node(size_t size) {
     our_data->prev = prev_ptr;
     prev_ptr->next = our_data;
     next_ptr->prev = our_data;
-
+    allocated_blocks++;
+    allocated_bytes += size;
+    meta_data_bytes += meta_data;
     return our_data->metadata.address;
 }
 
@@ -96,6 +111,8 @@ void MemoryList2::free(void *address) {
     {
         if(ptr->metadata.address == address){
             ptr->metadata.is_free = true;
+            free_blocks++;
+            free_bytes += ptr->metadata.size;
             return;
         }
     }
@@ -119,15 +136,42 @@ void *MemoryList2::reallocate(void *address, size_t size) {
     void* ret_address = allocate(size);
     if(ret_address == nullptr)
         return nullptr;
+
     for (unsigned i = 0; i < size; i++) {
         ((char *) ret_address)[i] = ((char *) address)[i];
     }
     ptr->metadata.is_free = true;
+    free_blocks++;
+    free_bytes += ptr->metadata.size;
     return ret_address;
 }
 
+const size_t& MemoryList2::getFreeBlocks() const {
+    return free_blocks;
+}
+
+const size_t& MemoryList2::getFreeBytes() const {
+    return free_bytes;
+}
+
+const size_t& MemoryList2::getAllocatedBytes() const {
+    return allocated_bytes;
+}
+
+const size_t& MemoryList2::getAllocatedBlocks() const {
+    return allocated_blocks;
+}
+
+const size_t& MemoryList2::getMetaDataBytes() const {
+    return meta_data_bytes;
+}
+
+const size_t& MemoryList2::getMetaData() {
+    return meta_data;
+}
+
 // ****************************** malloc_2.cpp file: ******************************
-constexpr unsigned int MAX_SIZE = 1E8;
+static constexpr unsigned int MAX_SIZE = 1E8;
 
 void *smalloc(size_t size) {
     if (size == 0 || size > MAX_SIZE) {
@@ -163,4 +207,28 @@ void sfree(void *p) {
         return;
     }
     MemoryList2::get().free(p);
+}
+
+size_t _num_free_blocks(){
+    return MemoryList2::get().getFreeBlocks();
+}
+
+size_t _num_free_bytes(){
+    return MemoryList2::get().getFreeBytes();
+}
+
+size_t _num_allocated_bytes(){
+    return MemoryList2::get().getAllocatedBytes();
+}
+
+size_t _num_allocated_blocks(){
+    return MemoryList2::get().getAllocatedBlocks();
+}
+
+size_t _num_meta_data_bytes(){
+    return MemoryList2::get().getMetaDataBytes();
+}
+
+size_t _size_meta_data(){
+    return MemoryList2::get().getMetaData();
 }

@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <iostream>
 
-constexpr unsigned int MAX_SIZE = 1E8;
+static constexpr unsigned int MAX_SIZE = 1E8;
 
 void* smalloc(size_t size){
     if(size == 0 || size > MAX_SIZE)

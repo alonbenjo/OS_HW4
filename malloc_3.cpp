@@ -37,7 +37,6 @@ private:
     MallocMetadataNode head_address_list;
     MallocMetadataNode end_size_list;
     MallocMetadataNode end_address_list;
-    unsigned int length;
 
     MemoryList3();
     void * add_node(size_t size);
@@ -58,7 +57,7 @@ public:
 // ****************************** list.cpp file: ******************************
 MemoryList3::MemoryList3() :
         head_size_list(),
-        head_address_list() , end_address_list(), end_size_list() , length(0) {
+        head_address_list() , end_address_list(), end_size_list() {
     head_address_list.next_by_address = &end_address_list;
     end_address_list.prev_by_address = &head_address_list;
 
@@ -154,8 +153,8 @@ void *MemoryList3::reallocate(void *address, size_t size, enum SearchDirection d
 }
 
 // ****************************** malloc_3.cpp file: ******************************
-constexpr unsigned int MAX_SIZE = 1E8;
 
+static constexpr unsigned int MAX_SIZE = 1E8;
 
 void *smalloc(size_t size) {
     if (size == 0 || size > MAX_SIZE) {
