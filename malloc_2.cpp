@@ -3,6 +3,8 @@
 #include <iostream>
 #include <unistd.h>
 
+#define PRINT_PARAM(input) \
+    std::cin << "PRINT_PARAM:\t" << input << std::endl;
 
 // ****************************** H file: ******************************
 class MemoryList2 {
@@ -25,16 +27,14 @@ private:
         ~MallocMetadataNode() = default;
     };
 
-
     MallocMetadataNode head_list;
     MallocMetadataNode end_list;
-    size_t free_blocks;
-    size_t free_bytes;
-    size_t allocated_bytes;
-    size_t allocated_blocks;
-    size_t meta_data_bytes;
-    static constexpr size_t meta_data = sizeof(MallocMetadataNode);
 
+    size_t free_blocks ;
+    size_t free_bytes ;
+    size_t allocated_bytes ;
+    size_t allocated_blocks ;
+    size_t meta_data_bytes ;
 
     MemoryList2();
     void * add_node(size_t size);
@@ -52,17 +52,18 @@ public:
     const size_t& getFreeBlocks() const;
     const size_t& getFreeBytes() const;
     const size_t& getAllocatedBytes() const;
-    const size_t& getAllocatedBlocks() const;
+    size_t  getAllocatedBlocks() const;
     const size_t& getMetaDataBytes() const;
+    static size_t getMetaData();
 
-    static const size_t& getMetaData();
 };
 
 
 // ****************************** CPP file: ******************************
-MemoryList2::MemoryList2() : head_list(), end_list(), free_blocks(0), free_bytes(0), allocated_blocks(0), allocated_bytes(0) {
+MemoryList2::MemoryList2() : head_list(), end_list(), free_blocks(0), free_bytes(0),  allocated_bytes(0), meta_data_bytes(0) {
     head_list.next = &end_list;
     end_list.prev = &head_list;
+    allocated_blocks = 0;
 }
 
 void * MemoryList2::allocate(size_t size) {
@@ -102,7 +103,7 @@ void * MemoryList2::add_node(size_t size) {
     next_ptr->prev = our_data;
     allocated_blocks++;
     allocated_bytes += size;
-    meta_data_bytes += meta_data;
+    meta_data_bytes += sizeof(MallocMetadataNode);
     return our_data->metadata.address;
 }
 
@@ -112,6 +113,7 @@ void MemoryList2::free(void *address) {
         if(ptr->metadata.address == address){
             ptr->metadata.is_free = true;
             free_blocks++;
+
             free_bytes += ptr->metadata.size;
             return;
         }
@@ -158,7 +160,7 @@ const size_t& MemoryList2::getAllocatedBytes() const {
     return allocated_bytes;
 }
 
-const size_t& MemoryList2::getAllocatedBlocks() const {
+size_t MemoryList2::getAllocatedBlocks() const {
     return allocated_blocks;
 }
 
@@ -166,8 +168,8 @@ const size_t& MemoryList2::getMetaDataBytes() const {
     return meta_data_bytes;
 }
 
-const size_t& MemoryList2::getMetaData() {
-    return meta_data;
+size_t MemoryList2::getMetaData() {
+    return sizeof(MallocMetadataNode);
 }
 
 // ****************************** malloc_2.cpp file: ******************************
@@ -230,5 +232,5 @@ size_t _num_meta_data_bytes(){
 }
 
 size_t _size_meta_data(){
-    return MemoryList2::get().getMetaData();
+    return MemoryList2::getMetaData();
 }

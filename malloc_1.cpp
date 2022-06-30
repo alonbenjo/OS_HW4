@@ -18,4 +18,3 @@ void* smalloc(size_t size){
     return start_of_alloc;
 }
 
-
