@@ -91,7 +91,9 @@ private:
     size_t free_bytes ;
     size_t allocated_bytes ;
     size_t allocated_blocks ;
-    size_t meta_data_bytes ;
+    //TODO benjo we deleted this because we can get the value by multiplication
+    //no need to complicate with extra statistic to follow
+    //size_t meta_data_bytes ;
 
     MemoryList3();
     void * add_node(size_t size);
@@ -245,7 +247,6 @@ void * MemoryList3::add_node(size_t size) {
 
     allocated_blocks++;
     allocated_bytes += size;
-    meta_data_bytes += sizeof(MallocMetadataNode);
     return new_node_ptr->address();
 }
 
@@ -305,7 +306,7 @@ size_t MemoryList3::getAllocatedBlocks() const {
     return allocated_blocks;
 }
 size_t MemoryList3::getMetaDataBytes() const {
-    return meta_data_bytes;
+    return allocated_blocks * sizeof(MallocMetadataNode);
 }
 
 
@@ -348,19 +349,37 @@ void MemoryList3::remove_from_size_list(MallocMetadataNode* node)
 void MemoryList3::enter_to_size_list(MemoryList3::MallocMetadataNode *node){
     MallocMetadataNode *prev_ptr = &head_size_list;
     MallocMetadataNode *next_ptr = prev_ptr->next_by_size;
-    for(; next_ptr != &end_size_list; next_ptr = next_ptr->next_by_size)
+    while(next_ptr != &end_size_list)
     {
-        if(next_ptr->size() > node->size()){
-            break;
+        //the node we insert shouldn't be already in the list
+        if(next_ptr == node)
+        {
+            exit(1);
         }
-        prev_ptr = next_ptr;
+        if(next_ptr->size() < node->size())
+        {
+            prev_ptr = next_ptr;
+            next_ptr = next_ptr->next_by_size;
+            continue;
+        }
+        if(next_ptr->size() == node->size() && next_ptr->address() < node->address())
+        {
+            prev_ptr = next_ptr;
+            next_ptr = next_ptr->next_by_size;
+            continue;
+        }
+        node->next_by_size = next_ptr;
+        node->prev_by_size = prev_ptr;
+        prev_ptr->next_by_size = node;
+        next_ptr->prev_by_size = node;
+        return;
     }
-
+    //the first node will always go between the dummies
     node->next_by_size = next_ptr;
     node->prev_by_size = prev_ptr;
     prev_ptr->next_by_size = node;
     next_ptr->prev_by_size = node;
-
+    return;
 }
 void MemoryList3::remove_from_size_list(MemoryList3::MallocMetadataNode &node) {
     remove_from_size_list(&node);
@@ -377,17 +396,20 @@ void MemoryList3::merge_with_next_node(MemoryList3::MallocMetadataNode *node) {
     {
         MallocMetadataNode* next = node->next_by_address;
         node->size() += next->total_size();
-        next = next->next_by_address;
-        next->prev_by_address = node;
         remove_from_size_list(next);
         remove_from_size_list(node);
+        free_bytes += sizeof(MallocMetadataNode);
+        free_blocks--;
+        allocated_bytes += sizeof (MallocMetadataNode);
+        allocated_blocks--;
         enter_to_size_list(node);
     }
 }
 void MemoryList3::merge_nodes(MemoryList3::MallocMetadataNode *node) {
-    merge_with_next_node(node);
-    if(node->prev_by_address != &head_address_list)
-    {
+    if (node->next_by_address != &end_address_list) {
+        merge_with_next_node(node);
+    }
+    if (node->prev_by_address != &head_address_list) {
         merge_with_next_node(node->prev_by_address);
     }
 }
