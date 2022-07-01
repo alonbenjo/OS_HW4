@@ -354,23 +354,45 @@ void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
         end_address_list.prev_by_address = prev;
         //? free_bytes -= ptr->prev_by_address->metadata.size;
         std::memmove(prev->address(), ptr->address(), ptr->metadata.size);
-
-        return ptr->prev_by_address;
-
+        return prev;
     }
 
     //case c
-    if(ptr == end_address_list.prev_by_address && prev != &head_address_list)
+    if(ptr == end_address_list.prev_by_address)
     {
         void *extension = sbrk(size - ptr->metadata.size);
         if (extension == (void *) -1)
             return nullptr;
         ptr->metadata.size = size;
-        ptr->metadata.is_free = false;
         return ptr;
     }
-    //case d
 
+    //case d
+    if(next != &end_address_list && size <= next->metadata.size + ptr->metadata.size + sizeof(MallocMetadataNode)){
+        ptr->metadata.size += next->metadata.size + sizeof(MallocMetadataNode);
+        split_node(*ptr, size);
+        return ptr;
+    }
+
+    //case e
+    if(next != &end_address_list && prev != &head_address_list && size <= next->metadata.size + prev->metadata.size + ptr->metadata.size + 2*sizeof(MallocMetadataNode)){
+        prev->metadata.is_free = false;
+        prev->metadata.size = next->metadata.size + prev->metadata.size + ptr->metadata.size + 2*sizeof(MallocMetadataNode);
+        split_node(*prev, size);
+        return prev;
+    }
+
+    //case f
+    if (next == &end_address_list && next->metadata.is_free){
+        //sub case i
+        if(prev != &head_address_list && prev->metadata.is_free) {
+            prev->metadata.is_free = false;
+            prev->metadata.size += sizeof(MallocMetadataNode) + ptr->metadata.size;
+            std::memmove(prev->address(), ptr->address(), ptr->metadata.size);
+            ptr = prev;
+        }
+        //sub case ii
+    }
     auto ret_address = allocate(size);
     if(ret_address == nullptr)
         return nullptr;
