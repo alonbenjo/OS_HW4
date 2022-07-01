@@ -49,7 +49,7 @@ private:
             return metadata.size;
         }
         bool& is_free(){
-            return is_free();
+            return metadata.is_free;
         }
         size_t total_size(){
             return metadata.size + sizeof(*this);
@@ -118,6 +118,7 @@ public:
     size_t getAllocatedBytes() const;
     size_t getAllocatedBlocks() const;
     size_t getMetaDataBytes() const;
+    size_t getMetaData() const;
 
     MemoryList3(MemoryList3&) = delete;
     MemoryList3 operator=(MemoryList3&) = delete;
@@ -133,6 +134,11 @@ public:
 // ****************************** list.cpp file: ******************************
 MemoryList3::MemoryList3()
 {
+    void* base = sbrk(0);
+    if ((size_t)base % 8 != 0)
+        sbrk(8-((size_t)base%8));
+
+
     head_size_list = MallocMetadataNode();
     head_address_list = MallocMetadataNode();
     end_address_list = MallocMetadataNode();
@@ -142,8 +148,8 @@ MemoryList3::MemoryList3()
     head_address_list.next_by_address = &end_address_list;
     end_address_list.prev_by_address = &head_address_list;
 
-    head_size_list.next_by_address = &end_size_list;
-    end_size_list.prev_by_address = &head_size_list;
+    head_size_list.next_by_size = &end_size_list;
+    end_size_list.prev_by_size= &head_size_list;
 
     head_mmap.next = &end_mmap;
     head_mmap.prev = &head_mmap;
@@ -156,8 +162,9 @@ void * MemoryList3::allocate(size_t size) {
     }
     // * step 1: search by ADDRESS a fitting block
     MallocMetadataNode* node;
-    for (node = head_address_list.next_by_size; node != &end_size_list ; node = node->next_by_size) {
-        if (!node->is_free() || node->size() < size)
+    for (node = head_size_list.next_by_size; node != &end_size_list ; node = node->next_by_size)
+    {
+        if (!(node->is_free()) || node->size() < size)
             continue;
         if(split_node(*node,size))
         {
@@ -194,13 +201,22 @@ void * MemoryList3::add_node(size_t size) {
 
     MallocMetadataNode* end_node = end_address_list.prev_by_address;
     //if the wilderness is dealocate use it
-    // TODO: verify
-    if(end_node->is_free() && end_node != &head_address_list)
+    int offset;
+    if(end_node != &head_address_list && end_node->is_free())
     {
-        void* extension = sbrk(size - end_node->size());
+        offset = 8 - (size + end_node->size()) % 8;
+        void* extension;
+        if(offset == 8)
+        {
+            extension = sbrk(size - end_node->size());
+        }
+        else
+        {
+            extension = sbrk(size - end_node->size() + offset);
+        }
         if( extension == (void *) -1) return nullptr;
         end_node->is_free() = false;
-        end_node->size() = size;
+        end_node->size() = size + offset;
         (end_node->prev_by_size)->next_by_size = end_node->next_by_size;
         (end_node->next_by_size)->prev_by_size = end_node->prev_by_size;
         enter_to_size_list(end_node);
@@ -208,9 +224,12 @@ void * MemoryList3::add_node(size_t size) {
         return end_node;
     }
     //else allocate as usual
-    MallocMetadataNode* new_node_ptr = (MallocMetadataNode*)sbrk(sizeof(MallocMetadataNode) + size);
+    offset = 8 - (size  % 8);
+    if(offset == 8)
+        offset = 0;
+    MallocMetadataNode* new_node_ptr = (MallocMetadataNode*)sbrk(sizeof(MallocMetadataNode) + size + offset);
     if((void *) new_node_ptr == (void *) -1) return nullptr;
-    *new_node_ptr = MallocMetadataNode(size);
+    *new_node_ptr = MallocMetadataNode(size + offset);
 
     //size loop:
     enter_to_size_list(new_node_ptr);
@@ -261,7 +280,7 @@ void *MemoryList3::reallocate(void *address, size_t size) {
     //find in blocks:
     for (auto ptr = head_address_list.next_by_address; ptr != &end_address_list; ptr = ptr->next_by_address)
     {
-        if(ptr->address() == address && !ptr->is_free)
+        if(ptr->address() == address && !ptr->is_free())
             return reallocate_block((MallocMetadataNode*)address, size);
     }
     for (auto ptr = head_mmap.next; ptr != &end_mmap; ptr = ptr->next)
@@ -288,6 +307,8 @@ size_t MemoryList3::getAllocatedBlocks() const {
 size_t MemoryList3::getMetaDataBytes() const {
     return meta_data_bytes;
 }
+
+
 
 bool MemoryList3::split_node(MemoryList3::MallocMetadataNode &node, size_t data_size) {
     size_t new_node_size = node.size() - data_size - sizeof(MallocMetadataNode);
@@ -365,9 +386,10 @@ void MemoryList3::merge_with_next_node(MemoryList3::MallocMetadataNode *node) {
 }
 void MemoryList3::merge_nodes(MemoryList3::MallocMetadataNode *node) {
     merge_with_next_node(node);
-    merge_with_next_node(node->prev_by_address);
-
-
+    if(node->prev_by_address != &head_address_list)
+    {
+        merge_with_next_node(node->prev_by_address);
+    }
 }
 
 void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
@@ -379,7 +401,7 @@ void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
         split_node(*ptr, size);
         return ptr->address();
     }
-    
+
     //case b
     auto prev = ptr->prev_by_address;
     auto next = ptr->next_by_address;
@@ -522,6 +544,10 @@ void *MemoryList3::reallocate_mmap(MemoryList3::MmapMetadataNode *node, size_t s
     return address;
 }
 
+size_t MemoryList3::getMetaData() const {
+    return sizeof(MallocMetadataNode);
+}
+
 
 
 
@@ -531,6 +557,10 @@ void *smalloc(size_t size) {
     if (size == 0 || size > MAX_SIZE) {
         return nullptr;
     }
+    void* base = sbrk(0);
+    if ((size_t)base % 8 != 0)
+        sbrk(8-((size_t)base%8));
+    size = ((size%8) == 0) ? size : size + 8 - size%8;
     return MemoryList3::get().allocate(size);
 }
 
@@ -548,6 +578,7 @@ void* srealloc(void * oldp, size_t size){
     if(size > MAX_SIZE || size == 0)
         return nullptr;
     auto& list = MemoryList3::get();
+    size = ((size%8) == 0) ? size : size + 8 - size%8;
     if(oldp == nullptr)
     {
         return list.allocate(size);
@@ -563,10 +594,28 @@ void sfree(void *p) {
     MemoryList3::get().dealocate(p);
 }
 
-//TODO
-//  1) allingment
-//  2)
-//
-//
+size_t _num_free_blocks(){
+    return MemoryList3::get().getFreeBlocks();
+}
+
+size_t _num_free_bytes(){
+    return MemoryList3::get().getFreeBytes();
+}
+
+size_t _num_allocated_bytes(){
+    return MemoryList3::get().getAllocatedBytes();
+}
+
+size_t _num_allocated_blocks(){
+    return MemoryList3::get().getAllocatedBlocks();
+}
+
+size_t _num_meta_data_bytes(){
+    return MemoryList3::get().getMetaDataBytes();
+}
+
+size_t _size_meta_data(){
+    return MemoryList3::get().getMetaData();
+}
 //
 //
