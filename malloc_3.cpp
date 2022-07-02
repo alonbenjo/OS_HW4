@@ -205,27 +205,25 @@ void * MemoryList3::add_node(size_t size) {
 
     MallocMetadataNode* end_node = end_address_list.prev_by_address;
     //if the wilderness is dealocate use it
+    if(end_node != &head_address_list && end_node->size() >= size && end_node->is_free())
+    {
+        split_node(*end_node,size);
+        return end_node->address();
+    }
     int offset;
     if(end_node != &head_address_list && end_node->is_free())
     {
-        offset = 8 - (size + end_node->size()) % 8;
-        void* extension;
-        if(offset == 8)
-        {
-            extension = sbrk(size - end_node->size());
-        }
-        else
-        {
-            extension = sbrk(size - end_node->size() + offset);
-        }
+        void* extension = sbrk(size - end_node->size());
         if( extension == (void *) -1) return nullptr;
+        free_bytes -= end_node->size();
+        allocated_bytes += size - end_node->size();
         end_node->is_free() = false;
-        end_node->size() = size + offset;
-        (end_node->prev_by_size)->next_by_size = end_node->next_by_size;
-        (end_node->next_by_size)->prev_by_size = end_node->prev_by_size;
-        enter_to_size_list(end_node);
+        end_node->size() = size;
 
-        return end_node;
+        remove_from_size_list(end_node);
+        enter_to_size_list(end_node);
+        free_blocks--;
+        return end_node->address();
     }
     //else allocate as usual
     offset = 8 - (size  % 8);
@@ -271,12 +269,16 @@ void MemoryList3::dealocate(void *address) {
         if(ptr->address() != address)
             continue;
         //else
-        size_t del_size = ptr->size();
+        if(ptr->size() == 0)
+        {
+            allocated_bytes -= 1e8;
+        }
+        allocated_bytes -= ptr->size();
         int error = munmap(ptr->address(),ptr->size() + sizeof(MmapMetadataNode));
-        if(error)
+        if(error) {
             return;
+        }
         allocated_blocks--;
-        allocated_bytes -= del_size;
         return;
     }
 }
@@ -334,9 +336,11 @@ bool MemoryList3::split_node(MemoryList3::MallocMetadataNode &node, size_t data_
 
     node.next_by_size->prev_by_size = node.prev_by_size;
     node.prev_by_size->next_by_size = node.next_by_size;
-
+    remove_from_size_list(node);
     enter_to_size_list(node);
     enter_to_size_list(*new_node_heap);
+    free_bytes += new_node_heap->size();
+    free_blocks++;
     return true;
 }
 void MemoryList3::remove_from_size_list(MallocMetadataNode* node)
