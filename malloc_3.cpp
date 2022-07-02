@@ -16,6 +16,7 @@
 
 static constexpr unsigned int MAX_SIZE = 1E8;
 static constexpr unsigned int MIN_SIZE = 128;
+static constexpr int MIN_S_SIZE = 128;
 static constexpr unsigned int MIN_MMAP = 128 * 1024;
 
 // ****************************** list.h file: ******************************
@@ -315,8 +316,8 @@ size_t MemoryList3::getMetaDataBytes() const {
 
 
 bool MemoryList3::split_node(MemoryList3::MallocMetadataNode &node, size_t data_size) {
-    size_t new_node_size = node.size() - data_size - sizeof(MallocMetadataNode);
-    if(new_node_size < MIN_SIZE){
+    int new_node_size = node.size() - data_size - sizeof(MallocMetadataNode);
+    if(new_node_size < MIN_S_SIZE){
         return false;
     }
 
