@@ -66,7 +66,7 @@ private:
 
         ~MmapMetadataNode() = default;
         void* address() const{
-            return (char *) this + sizeof(*this);
+            return (char *) this ;
         }
         size_t& size(){
             return metadata.size;
@@ -154,13 +154,13 @@ MemoryList3::MemoryList3()
     end_size_list.prev_by_size= &head_size_list;
 
     head_mmap.next = &end_mmap;
-    head_mmap.prev = &head_mmap;
+    end_mmap.prev = &head_mmap;
 }
 
 void * MemoryList3::allocate(size_t size) {
     // * step 0: if size >= MIN_MMAP use mmap
     if(size >= MIN_MMAP){
-        add_node(size);
+        return add_node(size);
     }
     // * step 1: search by ADDRESS a fitting block
     MallocMetadataNode* node;
@@ -198,6 +198,8 @@ void * MemoryList3::add_node(size_t size) {
         mmap_node->prev = prev_ptr;
         prev_ptr->next = mmap_node;
         next_ptr->prev = mmap_node;
+        allocated_blocks++;
+        allocated_bytes += size;
         return mmap_node->address();
     }
 
@@ -270,11 +272,14 @@ void MemoryList3::dealocate(void *address) {
         if(ptr->address() != address)
             continue;
         //else
-        if(munmap(address,ptr->size() + sizeof(MallocMetadataNode)) == 0){
-        }
+        size_t del_size = ptr->size();
+        int error = munmap(ptr->address(),ptr->size() + sizeof(MmapMetadataNode));
+        if(error)
+            return;
+        allocated_blocks--;
+        allocated_bytes -= del_size;
         return;
     }
-    EXIT_MESSAGE(1);
 }
 
 void *MemoryList3::reallocate(void *address, size_t size) {
