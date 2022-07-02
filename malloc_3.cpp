@@ -72,7 +72,7 @@ private:
             return metadata.size;
         }
         bool& is_free(){
-            return is_free();
+            return metadata.is_free;
         }
         size_t total_size(){
             return metadata.size + sizeof(*this);
@@ -101,6 +101,7 @@ private:
     void enter_to_size_list(MallocMetadataNode* node);
     void enter_to_size_list(MallocMetadataNode& node);
     void remove_from_size_list(MallocMetadataNode* node);
+    void remove_from_address_list(MallocMetadataNode* node);
     void remove_from_size_list(MallocMetadataNode& node);
     void merge_nodes(MallocMetadataNode* node);
     void merge_nodes(MallocMetadataNode& node);
@@ -168,15 +169,13 @@ void * MemoryList3::allocate(size_t size) {
     {
         if (!(node->is_free()) || node->size() < size)
             continue;
-        if(split_node(*node,size))
+        if(split_node(*node,size) == false)
         {
-            free_bytes -= size;
-        }
-        else {
             node->is_free() = false;
-            free_blocks--;
-            free_bytes -= node->size();
+
         }
+        free_blocks--;
+        free_bytes -= node->size();
         return node->address();
     }
 
@@ -258,10 +257,9 @@ void MemoryList3::dealocate(void *address) {
     {
         if(ptr->address() == address){
             ptr->is_free() = true;
-            merge_nodes(ptr);
-            //TODO add statistics stage 2
-            free_blocks++;
             free_bytes += ptr->size();
+            merge_nodes(ptr);
+            free_blocks++;
             return;
         }
     }
@@ -351,6 +349,17 @@ void MemoryList3::remove_from_size_list(MallocMetadataNode* node)
     node->next_by_size = nullptr;
     node->prev_by_size = nullptr;
 }
+void MemoryList3::remove_from_address_list(MallocMetadataNode* node)
+{
+    if(node == &end_address_list ||  node == &head_address_list  ||node == &end_size_list ||  node == &head_size_list )
+    {
+        exit(1);
+    }
+    (node->prev_by_address)->next_by_address = node->next_by_address;
+    (node->next_by_address)->prev_by_address = node->prev_by_address;
+    node->next_by_address = nullptr;
+    node->prev_by_address = nullptr;
+}
 void MemoryList3::enter_to_size_list(MemoryList3::MallocMetadataNode *node){
     MallocMetadataNode *prev_ptr = &head_size_list;
     MallocMetadataNode *next_ptr = prev_ptr->next_by_size;
@@ -397,11 +406,12 @@ void MemoryList3::merge_nodes(MemoryList3::MallocMetadataNode &node) {
 }
 
 void MemoryList3::merge_with_next_node(MemoryList3::MallocMetadataNode *node) {
-    if(node->next_by_address != &end_address_list && node->next_by_address->is_free())
+    if(node->next_by_address != &end_address_list && node->next_by_address->is_free() && node->is_free())
     {
         MallocMetadataNode* next = node->next_by_address;
         node->size() += next->total_size();
         remove_from_size_list(next);
+        remove_from_address_list(next);
         remove_from_size_list(node);
         free_bytes += sizeof(MallocMetadataNode);
         free_blocks--;
