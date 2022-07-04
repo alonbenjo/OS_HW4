@@ -318,7 +318,8 @@ size_t MemoryList3::getMetaDataBytes() const {
 
 bool MemoryList3::split_node(MemoryList3::MallocMetadataNode &node, size_t data_size) {
     int new_node_size = node.size() - data_size - sizeof(MallocMetadataNode);
-    if(new_node_size < MIN_S_SIZE){
+    if(new_node_size < MIN_S_SIZE)
+    {
         return false;
     }
 
@@ -437,26 +438,42 @@ void MemoryList3::merge_nodes(MemoryList3::MallocMetadataNode *node) {
 
 void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
 {
+    int past_size = ptr->size();
     //case a
     if(ptr->size() >= size)
     {
-        allocated_bytes -=
-        ptr->size() = size;
-        split_node(*ptr, size);
+        if(split_node(*ptr, size) == true)
+        {
+            free_bytes += (past_size - size) ;
+        }
         return ptr->address();
     }
 
     //case b
     auto prev = ptr->prev_by_address;
     auto next = ptr->next_by_address;
-    if(prev != &head_address_list && prev->is_free() && ptr->size() + prev->size() >= size)
+    if(prev != &head_address_list && prev->is_free() && ptr->size() + prev->size() +sizeof(MallocMetadataNode) >= size)
     {
+        if(ptr->size() + prev->size() +sizeof(MallocMetadataNode) >= size && ptr->size() + prev->size()  < size)
+        {
+            free_bytes += sizeof(MallocMetadataNode);
+        }
+        free_bytes += prev->size() - size;
         prev->size() += ptr->total_size();
         prev->next_by_address = next;
         next->prev_by_address = prev;
         prev->is_free() = false;
         std::memmove(prev->address(), ptr->address(), ptr->size());
-        split_node(*prev,size);
+        if(split_node(*prev, size) == true)
+        {
+            free_bytes += (past_size - size) ;
+            free_blocks--;
+            allocated_blocks--;
+            allocated_bytes += sizeof(MallocMetadataNode);
+        }
+        allocated_blocks--;
+        free_blocks--;
+        allocated_bytes += sizeof(MallocMetadataNode);
         remove_from_size_list(ptr);
         remove_from_size_list(prev);
         enter_to_size_list(prev);
@@ -464,19 +481,24 @@ void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
     }
 
     if(ptr == end_address_list.prev_by_address && prev != &head_address_list && prev->is_free()) {
-        void *extension = sbrk(size - prev->size() - ptr->size() - sizeof(MallocMetadataNode));
+        int ext_size = size - prev->size() - ptr->size() - sizeof(MallocMetadataNode);
+        void *extension = sbrk(ext_size);
         if (extension == (void *) -1) {
             return nullptr;
         }
+        allocated_bytes += ext_size + sizeof(MallocMetadataNode);
+        free_bytes -= prev->size();
         prev->size() = size;
         prev->is_free() = false;
         prev->next_by_address = &end_address_list;
         end_address_list.prev_by_address = prev;
-        //? free_bytes -= ptr->prev_by_address->size();
+
         std::memmove(prev->address(), ptr->address(), ptr->size());
         remove_from_size_list(ptr);
         remove_from_size_list(prev);
         enter_to_size_list(prev);
+        allocated_blocks--;
+        free_blocks--;
         return prev->address();
     }
 
@@ -496,12 +518,21 @@ void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
 
     //case d
     if(next != &end_address_list && size <= next->size() + ptr->size() + sizeof(MallocMetadataNode) && next->is_free()){
+
+        allocated_blocks--;
+        allocated_bytes += sizeof(MallocMetadataNode);
+        free_blocks--;
+        free_bytes -= next->size();
         merge_with_next_node(ptr);
         remove_from_size_list(next);
         remove_from_size_list(ptr);
+        ptr->size() = next->size() + sizeof(MallocMetadataNode);
         enter_to_size_list(ptr);
-        split_node(*ptr, size);
-        return ptr;
+        if(split_node(*ptr, size) == true)
+        {
+            free_bytes += (past_size - size) ;
+        }
+        return ptr->address();
     }
 
     //case e
@@ -511,7 +542,10 @@ void * MemoryList3::reallocate_block(MallocMetadataNode* ptr, size_t size )
         merge_with_next_node(ptr);
         merge_with_next_node(prev);
         std::memmove(prev->address(), ptr->address(), ptr->size());
-        split_node(*prev, size);
+        if(split_node(*ptr, size) == true)
+        {
+            free_bytes += (past_size - size) ;
+        }
         return prev->address();
     }
 
